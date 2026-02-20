@@ -181,3 +181,9 @@ public_key.*
 
 # Sandbox and development folders
 z_sandbox/
+
+# SAP SDK / pyrfc source (do not commit)
+nwrfc750P_18-*.zip
+nwrfcsdk_amd64/
+nwrfcsdk_arm64/
+pyrfc-*.tar.gz

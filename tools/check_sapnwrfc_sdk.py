@@ -141,9 +141,11 @@ def check_sapnwrfc_sdk():
         print(f"[INFO] Consider adding to PATH: {lib_path}")
         issues_found.append("SAP NetWeaver RFC lib directory not in PATH")
 
-    # Check 6: Try to import pyrfc
+    # Check 6: Try to import pyrfc (set library path first so SDK .dylib/.so are found)
     print(f"\n[6] Checking Python pyrfc module...")
     total_checks += 1
+    _lib = str(Path(sapnwrfc_home) / "lib")
+    os.environ["LD_LIBRARY_PATH"] = _lib + (os.pathsep + os.environ.get("LD_LIBRARY_PATH", ""))
 
     try:
         import pyrfc
@@ -157,6 +159,12 @@ def check_sapnwrfc_sdk():
             print(f"[INFO] pyrfc binding version: {pyrfc.Connection.get_version()}")
         except Exception as e:
             print(f"[WARNING] Could not get pyrfc binding version: {e}")
+            if not getattr(pyrfc, "Connection", None):
+                print(f"[FIX] Set LD_LIBRARY_PATH before starting Python:")
+                print(f"      export SAPNWRFC_HOME={sapnwrfc_home}")
+                print(f"      export LD_LIBRARY_PATH=$SAPNWRFC_HOME/lib")
+                print(f"      python tools/check_sapnwrfc_sdk.py")
+                issues_found.append("pyrfc: SDK not loaded (set LD_LIBRARY_PATH before starting Python)")
 
     except ImportError as e:
         print(f"[ERROR] pyrfc module not available: {e}")

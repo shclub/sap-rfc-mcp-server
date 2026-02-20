@@ -5,6 +5,14 @@ import os
 from contextlib import contextmanager
 from typing import Any, Dict, Generator, List, Optional
 
+# Set SDK lib path before importing pyrfc (Linux: LD_LIBRARY_PATH)
+_sap_home = os.environ.get("SAPNWRFC_HOME")
+if _sap_home:
+    _sap_lib = os.path.join(_sap_home, "lib")
+    _existing = os.environ.get("LD_LIBRARY_PATH", "")
+    if _sap_lib not in _existing.split(os.pathsep):
+        os.environ["LD_LIBRARY_PATH"] = _sap_lib + (os.pathsep + _existing if _existing else "")
+
 # Try to import pyrfc - make it optional for development
 try:
     import pyrfc
@@ -60,7 +68,7 @@ class SAPRFCManager:
             )
         sap_lib_path = os.path.join(os.environ["SAPNWRFC_HOME"], "lib")
         if sap_lib_path not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = f"{sap_lib_path};{os.environ.get('PATH', '')}"
+            os.environ["PATH"] = f"{sap_lib_path}:{os.environ.get('PATH', '')}"
     
     @contextmanager
     def connection(self):  # -> Generator[Connection, None, None] when pyrfc is available

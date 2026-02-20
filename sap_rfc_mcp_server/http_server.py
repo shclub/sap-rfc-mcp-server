@@ -263,8 +263,13 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
             function_name = arguments["function_name"]
             parameters = arguments.get("parameters", {})
 
+            def _call_rfc():
+                return _get_sap_client().call_rfc_function(
+                    function_name, **parameters
+                )
+
             result = await asyncio.get_event_loop().run_in_executor(
-                None, _get_sap_client().call_rfc_function, function_name, **parameters
+                None, _call_rfc
             )
 
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
@@ -636,16 +641,52 @@ def run_http_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = Fals
     )
 
 
+def main():
+    """Entry point: parse SAP connection params (CLI or env) and run HTTP server."""
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(
+        description="SAP RFC MCP HTTP Server",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--host", default="0.0.0.0", help="Bind host")
+    parser.add_argument("--port", type=int, default=8000, help="Bind port")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
+    parser.add_argument("--sap-ashost", metavar="HOST", help="SAP application server host (or SAP_ASHOST)")
+    parser.add_argument("--sap-user", metavar="USER", help="SAP user (or SAP_USER)")
+    parser.add_argument("--sap-password", metavar="PWD", help="SAP password (or SAP_PASSWORD)")
+    parser.add_argument("--sap-sysnr", metavar="NR", help="SAP system number (or SAP_SYSNR)")
+    parser.add_argument("--sap-client", metavar="CLIENT", help="SAP client (or SAP_CLIENT)")
+    parser.add_argument("--sap-lang", default="EN", metavar="LANG", help="SAP logon language (or SAP_LANG)")
+    args = parser.parse_args()
+
+    # CLI overrides: set env so get_config("auto") uses them
+    if args.sap_ashost is not None:
+        os.environ["SAP_ASHOST"] = args.sap_ashost
+    if args.sap_user is not None:
+        os.environ["SAP_USER"] = args.sap_user
+    if args.sap_password is not None:
+        os.environ["SAP_PASSWORD"] = args.sap_password
+    if args.sap_sysnr is not None:
+        os.environ["SAP_SYSNR"] = args.sap_sysnr
+    if args.sap_client is not None:
+        os.environ["SAP_CLIENT"] = args.sap_client
+    if args.sap_lang is not None:
+        os.environ["SAP_LANG"] = args.sap_lang
+    if any(
+        (
+            args.sap_ashost,
+            args.sap_user,
+            args.sap_password,
+            args.sap_sysnr,
+            args.sap_client,
+        )
+    ):
+        os.environ["SAP_CONFIG_SOURCE"] = "env"
+
+    run_http_server(host=args.host, port=args.port, reload=args.reload)
+
+
 if __name__ == "__main__":
-    import sys
-
-    # Parse command line arguments
-    host = sys.argv[1] if len(sys.argv) > 1 else "0.0.0.0"
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else 8000
-    reload = "--reload" in sys.argv
-
-    print(f"[*] Starting SAP RFC MCP HTTP Server on {host}:{port}")
-    if reload:
-        print("[*] Auto-reload enabled")
-
-    run_http_server(host, port, reload)
+    main()

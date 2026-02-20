@@ -305,8 +305,11 @@ class SAPConfigManager:
     @staticmethod
     def _auto_detect_config() -> SAPConfig:
         """Auto-detect best available configuration method."""
-        # Priority order: keyring > encrypted_file > .env > environment
+        # When SAP_CONFIG_SOURCE=env (e.g. Docker), use only environment variables
+        if os.environ.get("SAP_CONFIG_SOURCE", "").strip().lower() == "env":
+            return SAPConfig.from_env()
 
+        # Priority order: keyring > encrypted_file > .env > environment
         # Try keyring first (most secure)
         if KEYRING_AVAILABLE:
             try:

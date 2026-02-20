@@ -7,8 +7,7 @@ name = "sap-rfc-mcp-server"
 version = "1.0.0"
 description = "Model Context Protocol (MCP) server for SAP RFC function calls with enhanced metadata management"
 readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE"]
+license = { text = "MIT" }
 authors = [
     {name = "Tadeusz Hupalo", email = "tadeusz.hupalo@gmail.com"}
 ]
@@ -85,7 +84,7 @@ Changelog = "https://github.com/thupalo/sap-rfc-mcp-server/blob/main/CHANGELOG.m
 
 [project.scripts]
 sap-rfc-mcp-server = "sap_rfc_mcp_server.server:main"
-sap-rfc-mcp-http-server = "sap_rfc_mcp_server.http_server:run_http_server"
+sap-rfc-mcp-http-server = "sap_rfc_mcp_server.http_server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
