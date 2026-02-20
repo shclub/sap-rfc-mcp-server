@@ -1,0 +1,27 @@
+{
+  "tools": [
+    {
+      "name": "read_t001",
+      "description": "Read company code table T001 (RFC_READ_TABLE)",
+      "function_name": "RFC_READ_TABLE",
+      "import_parameters": {
+        "QUERY_TABLE": { "description": "SAP table name", "default": "T001" },
+        "DELIMITER": { "description": "Field delimiter", "default": "|" },
+        "ROWCOUNT": { "description": "Max rows", "default": 100, "type": "integer" }
+      },
+      "export_parameters": null,
+      "table_parameters": ["DATA"]
+    },
+    {
+      "name": "read_mara",
+      "description": "Read material master MARA (RFC_READ_TABLE)",
+      "function_name": "RFC_READ_TABLE",
+      "import_parameters": {
+        "QUERY_TABLE": { "description": "SAP table name", "default": "MARA" },
+        "DELIMITER": { "description": "Field delimiter", "default": "|" },
+        "ROWCOUNT": { "description": "Max rows", "default": 50, "type": "integer" }
+      },
+      "table_parameters": ["DATA", "FIELDS"]
+    }
+  ]
+}

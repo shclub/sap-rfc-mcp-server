@@ -16,6 +16,16 @@ from mcp.types import TextContent, Tool
 
 # Handle imports for both module and direct execution
 try:
+    from .rfc_tool_config import (
+        add_rfc_tool_definition,
+        delete_rfc_tool_definition,
+        execute_custom_tool,
+        generate_tool_definition_from_rfc_metadata,
+        get_custom_tool_definition,
+        get_custom_tools,
+        load_rfc_tools_config,
+        update_rfc_tool_definition,
+    )
     from .sap_client import SAPConnectionError, SAPRFCManager
 except ImportError:
     # If relative import fails, this is likely direct execution
@@ -25,6 +35,16 @@ except ImportError:
     # Add parent directory to path
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     try:
+        from sap_rfc_mcp_server.rfc_tool_config import (
+            add_rfc_tool_definition,
+            delete_rfc_tool_definition,
+            execute_custom_tool,
+            generate_tool_definition_from_rfc_metadata,
+            get_custom_tool_definition,
+            get_custom_tools,
+            load_rfc_tools_config,
+            update_rfc_tool_definition,
+        )
         from sap_rfc_mcp_server.sap_client import SAPConnectionError, SAPRFCManager
     except ImportError as e:
         print("[ERROR] Cannot import required modules!")
@@ -230,13 +250,22 @@ async def handle_list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
-    ]
+    ] + get_custom_tools()
 
 
 @mcp_server.call_tool()
 async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Handle tool calls."""
     try:
+        if get_custom_tool_definition(name):
+            client = _get_sap_client()
+
+            def _run():
+                return execute_custom_tool(client.call_rfc_function, name, arguments)
+
+            result = await asyncio.get_event_loop().run_in_executor(None, _run)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
         if name == "rfc_system_info":
             result = await asyncio.get_event_loop().run_in_executor(
                 None, _get_sap_client().get_system_info
@@ -426,6 +455,7 @@ async def root():
             "call_tool": "/mcp/call_tool",
             "stream_table": "/stream/table/{table_name}",
             "health": "/health",
+            "rfc_tools_api": "/api/rfc-tools",
         },
     }
 
@@ -481,6 +511,145 @@ async def call_tool(request: dict):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------- Custom RFC tools API (CRUD) ----------
+
+
+@app.get("/api/rfc-tools")
+async def api_list_rfc_tools():
+    """List all custom RFC tool definitions."""
+    definitions = load_rfc_tools_config()
+    return {"tools": definitions}
+
+
+@app.get("/api/rfc-tools/meta/{function_name}")
+async def api_get_rfc_tool_meta(function_name: str, language: str = "EN"):
+    """
+    RFC 함수명을 넣으면 SAP에서 import/export·테이블 메타를 조회해,
+    도구를 만들 때 쓸 meta(정의)만 반환합니다. 도구는 생성하지 않습니다.
+    이 meta를 그대로 POST /api/rfc-tools body에 넣으면 도구가 생성됩니다.
+    """
+    try:
+        from .server import _get_metadata_manager
+
+        metadata_manager = _get_metadata_manager()
+        if metadata_manager is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Metadata manager not available (SAP connection required)",
+            )
+        metadata = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: metadata_manager.get_function_metadata(
+                function_name, language=language
+            ),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to get RFC metadata for {function_name}: {e!s}",
+        )
+    tool_definition = generate_tool_definition_from_rfc_metadata(
+        function_name, metadata, tool_name=None
+    )
+    return {"function_name": function_name, "tool_definition": tool_definition}
+
+
+@app.get("/api/rfc-tools/{name}")
+async def api_get_rfc_tool(name: str):
+    """Get a single custom RFC tool definition by tool name."""
+    defn = get_custom_tool_definition(name)
+    if defn is None:
+        raise HTTPException(status_code=404, detail=f"Tool '{name}' not found")
+    return defn
+
+
+@app.post("/api/rfc-tools/from-rfc")
+async def api_generate_rfc_tool_from_function(body: dict):
+    """
+    Analyze an RFC function's import/export/table metadata and generate a tool definition.
+
+    Body: { "function_name": "RFC_READ_TABLE", "tool_name": "read_table" (optional), "create": false (optional) }
+    - If create=true, the generated definition is saved as a custom tool immediately.
+    """
+    function_name = body.get("function_name")
+    if not function_name:
+        raise HTTPException(status_code=400, detail="function_name is required")
+
+    try:
+        from .server import _get_metadata_manager
+
+        metadata_manager = _get_metadata_manager()
+        if metadata_manager is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Metadata manager not available (SAP connection required)",
+            )
+        language = body.get("language", "EN")
+        metadata = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: metadata_manager.get_function_metadata(function_name, language=language),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to get RFC metadata for {function_name}: {e!s}",
+        )
+
+    tool_name = body.get("tool_name")
+    defn = generate_tool_definition_from_rfc_metadata(
+        function_name, metadata, tool_name=tool_name
+    )
+
+    if body.get("create"):
+        try:
+            add_rfc_tool_definition(defn)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"created": True, "tool": defn}
+    return {"tool_definition": defn}
+
+
+@app.post("/api/rfc-tools")
+async def api_create_rfc_tool(body: dict):
+    """
+    Create a new custom RFC tool definition.
+
+    Body either:
+    - The tool definition directly: { "name", "description", "function_name", ... }
+    - Or from GET meta response: { "function_name": "...", "tool_definition": { ... } }
+    """
+    payload = body.get("tool_definition") if "tool_definition" in body else body
+    if not payload or not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Body must be a tool definition object or { \"tool_definition\": { ... } }",
+        )
+    try:
+        defn = add_rfc_tool_definition(payload)
+        return defn
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/rfc-tools/{name}")
+async def api_update_rfc_tool(name: str, body: dict):
+    """Update an existing custom RFC tool definition by name."""
+    try:
+        defn = update_rfc_tool_definition(name, body)
+        return defn
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/api/rfc-tools/{name}")
+async def api_delete_rfc_tool(name: str):
+    """Delete a custom RFC tool definition by name."""
+    removed = delete_rfc_tool_definition(name)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Tool '{name}' not found")
+    return {"deleted": name}
 
 
 def _call_rfc_read_table(

@@ -20,6 +20,11 @@ from mcp.types import (
 )
 
 from .rfc_table_reader import RFCTableReader
+from .rfc_tool_config import (
+    execute_custom_tool,
+    get_custom_tool_definition,
+    get_custom_tools,
+)
 from .sap_client import SAPConnectionError, SAPRFCManager
 
 try:
@@ -310,13 +315,22 @@ async def handle_list_tools() -> list[Tool]:
                 "required": ["table_name"],
             },
         ),
-    ]
+    ] + get_custom_tools()
 
 
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Handle tool calls."""
     try:
+        if get_custom_tool_definition(name):
+            client = _get_sap_client()
+
+            def _run():
+                return execute_custom_tool(client.call_rfc_function, name, arguments)
+
+            result = await asyncio.get_event_loop().run_in_executor(None, _run)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
         if name == "rfc_system_info":
             result = await asyncio.get_event_loop().run_in_executor(
                 None, _get_sap_client().get_system_info
