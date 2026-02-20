@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import TextContent, Tool
 
 # Handle imports for both module and direct execution
@@ -75,12 +76,27 @@ def _get_sap_client():
     return sap_client
 
 
-# Create FastAPI app with lifespan
+# Streamable HTTP (Cursor/IDE MCP): set after mcp_server and handlers
+_streamable_session_manager: "StreamableHTTPSessionManager | None" = None
+
+
+class _StreamableMCPASGIApp:
+    """ASGI app that forwards to Streamable HTTP session manager (for Cursor streamableHttp)."""
+
+    def __init__(self, manager: "StreamableHTTPSessionManager"):
+        self._manager = manager
+
+    async def __call__(self, scope: dict, receive: object, send: object) -> None:
+        await self._manager.handle_request(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan."""
+    global _streamable_session_manager
     logger.info("Starting SAP RFC MCP HTTP Server...")
-    yield
+    async with _streamable_session_manager.run():
+        yield
     logger.info("Shutting down SAP RFC MCP HTTP Server...")
 
 
@@ -440,6 +456,16 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
+# Streamable HTTP for Cursor/IDE MCP at /mcp/sse (avoids clashing with /mcp/tools, /mcp/call_tool)
+_streamable_session_manager = StreamableHTTPSessionManager(
+    mcp_server,
+    stateless=True,
+    json_response=False,
+)
+_streamable_mcp_app = _StreamableMCPASGIApp(_streamable_session_manager)
+app.mount("/mcp/sse", _streamable_mcp_app)
+
+
 # HTTP Endpoints
 
 
@@ -453,6 +479,7 @@ async def root():
         "endpoints": {
             "tools": "/mcp/tools",
             "call_tool": "/mcp/call_tool",
+            "streamable_http": "/mcp/sse",
             "stream_table": "/stream/table/{table_name}",
             "health": "/health",
             "rfc_tools_api": "/api/rfc-tools",

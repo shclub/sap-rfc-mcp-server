@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "sap-rfc-stdio": {
+      "command": "python",
+      "args": ["-m", "sap_rfc_mcp_server.server"],
+      "cwd": "/absolute/path/to/sap-rfc-mcp-server",
+      "env": {
+        "SAP_RFC_MCP_CONFIG": "./.env"
+      }
+    },
+    "sap-rfc-http": {
+      "url": "http://localhost:8000/mcp/sse"
+    }
+  }
+}
